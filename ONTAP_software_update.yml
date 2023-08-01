@@ -1,0 +1,56 @@
+---
+- hosts: localhost
+  collections:
+    - netapp.ontap
+
+  tasks:
+  - name: run ONTAP gather version pre-update
+    na_ontap_rest_info:
+      hostname: "{{ lookup('env', 'ClusterName') }}"
+      username: "{{ lookup('env', 'ontap_admin_usr') }}"
+      password: "{{ lookup('env', 'ontap_admin_pwd') }}"
+      use_rest: always
+      https: true
+      validate_certs: false
+      gather_subset:
+        - cluster_node_info
+      fields:
+        - 'version'
+    register: cluster_node_info
+  - debug:
+      var: >- 
+        cluster_node_info.ontap_info['cluster/nodes'].records
+          | map(attribute='version.full') | list
+
+  - name: "ONTAP software update on {{ lookup('env', 'ClusterName') }}"
+    netapp.ontap.na_ontap_software_update:
+      state: present
+      package_url: "{{ lookup('env', 'ontap_package_url') }}"
+      package_version: "{{ lookup('env', 'ontap_package_version') }}"
+      ignore_validation_warning: true
+      download_only: "{{ lookup('env', 'ontap_package_download_only') }}"
+      hostname: "{{ lookup('env', 'ClusterName') }}"
+      username: "{{ lookup('env', 'ontap_admin_usr') }}"
+      password: "{{ lookup('env', 'ontap_admin_pwd') }}"
+      stabilize_minutes: 10
+      https: true
+      validate_certs: false
+      timeout: 7200
+
+  - name: run ONTAP gather version post-update
+    na_ontap_rest_info:
+      hostname: "{{ lookup('env', 'ClusterName') }}"
+      username: "{{ lookup('env', 'ontap_admin_usr') }}"
+      password: "{{ lookup('env', 'ontap_admin_pwd') }}"
+      use_rest: always
+      https: true
+      validate_certs: false
+      gather_subset:
+        - cluster_node_info
+      fields:
+        - 'version'
+    register: cluster_node_info
+  - debug:
+      var: >- 
+        cluster_node_info.ontap_info['cluster/nodes'].records
+          | map(attribute='version.full') | list
