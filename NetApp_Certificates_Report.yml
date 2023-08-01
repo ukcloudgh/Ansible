@@ -1,0 +1,67 @@
+---
+- name: NetApp Certificate Expiry Reporting
+  hosts: localhost
+  gather_facts: no
+  collections:
+    - netapp.ontap
+
+  vars:
+    ontap_clusters:
+      - cluster1_hostname
+      - cluster2_hostname
+    ontap_fields: [common_name, serial_number, ca, type, expiry_time, scope]
+    certs: "{{ dict(certificate_info.results|json_query(certs_query)) }}"
+    certs_query: '[].[item, ontap_info."security/certificates".records]'
+    csv_file_path: /var/lib/jenkins/workspace/Infra-NetApp_certificates_report/netapp_certificate_details.csv
+    sender: sender@domain.com
+    recipient: recipient@domain.com
+    mailrelay: fqdn_of_mailrelay
+    template_vars:
+      subject: NetApp Storage Certificate Report
+      body: 'Attached is the list of certificates for all clusters (this includes both cluster and svm certificates). Please review and renew as needed.'
+    
+  tasks:
+  - name: run ONTAP gather facts for certificate info with specified fields
+    netapp.ontap.na_ontap_rest_info:
+      hostname: "{{ item }}"
+      username: "{{ lookup('env', 'ontap_admin_usr') }}"
+      password: "{{ lookup('env', 'ontap_admin_pwd') }}"
+      use_rest: always
+      https: true
+      validate_certs: false
+      gather_subset:
+        - security/certificates
+      fields:
+        - 'common_name'
+        - 'serial_number'
+        - 'ca'
+        - 'type'
+        - 'expiry_time'
+        - 'scope'
+      parameters:
+        type: server
+    loop: "{{ ontap_clusters }}"
+    register: certificate_info
+
+  - name: copy the results to CSV
+    copy:
+      dest: "{{ csv_file_path }}"
+      content: |
+        {{ ontap_fields|join(',') }}
+        {% for cluster,certs in certs.items() %}
+        {% for cert in certs %}
+        {{ ontap_fields|map('extract', cert)|join(',') }}
+        {% endfor %}
+        {% endfor %}
+  
+  - name: send the results by e-mail
+    mail:
+      host: "{{ mailrelay }}"
+      port: 25
+      subject: "{{ template_vars.subject }}"
+      body: "{{ template_vars.body }}"
+      from: "{{ sender }}"
+      to: "{{ recipient }}"
+      attach:
+      - "{{ csv_file_path }}"
+    delegate_to: localhost
